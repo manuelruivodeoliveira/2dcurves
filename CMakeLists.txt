@@ -32,7 +32,6 @@ add_executable(2dcurves
 )
 
 # glad
-set(GLAD_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/deps/glad/include/")
 set(GLAD_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include/glad/")
 
 target_include_directories(2dcurves PUBLIC
