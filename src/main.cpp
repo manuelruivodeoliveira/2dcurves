@@ -4,8 +4,10 @@
 
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
+#include <glm/glm.hpp>
 #include <glm/vec2.hpp>
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
@@ -13,19 +15,42 @@
 #include <vector>
 
 
+struct Vertex
+{
+    glm::vec2 position;
+    bool is_moving = false;
+};
+
+
 // Global variables
-std::vector<glm::vec2> control_vertices;
+int mode = 0;
+std::vector<Vertex> control_vertices;
 int num_samples = 100;
 std::vector<float> t_samples;
 
 
 // Helper functions
+glm::vec2 get_cursor_position_NDC(GLFWwindow* window)
+{
+    double xpos, ypos;
+    glfwGetCursorPos(window, &xpos, &ypos);
+
+    int width, height;
+    glfwGetFramebufferSize(window, &width, &height);
+
+    // Map from screen coordinates to NDC
+    float xposNDC = (xpos - (width/2.0))/(width/2.0);
+    float yposNDC = ((height/2.0) - ypos)/(height/2.0);
+
+    return glm::vec2(xposNDC, yposNDC);
+}
+
 void fill_t_samples()
 {
     assert(num_samples > 1);
 
     float t_delta = 1.0/(num_samples - 1);
-    for(int i = 0; i < num_samples; ++i) {
+    for (int i = 0; i < num_samples; ++i) {
         float t_value = i * t_delta;
         t_samples.push_back(t_value);
     }
@@ -36,7 +61,7 @@ long long binomial_coefficient(int n, int k)
     assert((k >= 0) && (n >= 0) && (n >= k));
     assert(n <= 50);
 
-    if(k > n - k) {
+    if (k > n - k) {
         k = n - k;
     }
 
@@ -65,7 +90,7 @@ void draw_bezier_curve(unsigned int vao, unsigned int vbo)
     for (float t_value : t_samples) {
         glm::vec2 bezier_point(0.0, 0.0);
         for (int i = 0; i <= bezier_degree; i++) {
-            bezier_point += bernstein_polynomial(bezier_degree, i, t_value) * control_vertices[i];
+            bezier_point += bernstein_polynomial(bezier_degree, i, t_value) * control_vertices[i].position;
         }
         bezier_points.push_back(bezier_point);
     }
@@ -90,18 +115,26 @@ void draw_bezier_curve(unsigned int vao, unsigned int vbo)
 
 void draw_control_polygon(unsigned int vao, unsigned int vbo)
 {
+    std::vector<glm::vec2> control_vertices_positions;
+    std::transform(
+        control_vertices.begin(),
+        control_vertices.end(),
+        std::back_inserter(control_vertices_positions),
+        [](Vertex v) { return v.position; }
+    );
+
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(
         GL_ARRAY_BUFFER,
-        control_vertices.size() * sizeof(glm::vec2),
-        control_vertices.data(),
+        control_vertices_positions.size() * sizeof(glm::vec2),
+        control_vertices_positions.data(),
         GL_STATIC_DRAW
     );
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     glBindVertexArray(vao);
-    glDrawArrays(GL_POINTS, 0, control_vertices.size());
-    glDrawArrays(GL_LINE_STRIP, 0, control_vertices.size());
+    glDrawArrays(GL_POINTS, 0, control_vertices_positions.size());
+    glDrawArrays(GL_LINE_STRIP, 0, control_vertices_positions.size());
     glBindVertexArray(0);
 }
 
@@ -114,31 +147,49 @@ static void error_callback(int error, const char* description)
 
 static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-    if(key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
         glfwSetWindowShouldClose(window, GLFW_TRUE);
+    }
+
+    if (key == GLFW_KEY_0 && action == GLFW_PRESS) {
+        mode = 0;
+    }
+
+    if (key == GLFW_KEY_1 && action == GLFW_PRESS) {
+        mode = 1;
     }
 }
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 {
-    if(button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-        double xpos, ypos;
-        glfwGetCursorPos(window, &xpos, &ypos);
+    if (mode == 0) { // drawing mode
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+            glm::vec2 cursor_pos_NDC = get_cursor_position_NDC(window);
 
-        int width, height;
-        glfwGetFramebufferSize(window, &width, &height);
-        
-        // Map from screen coordinates to NDC
-        float xposNDC = (xpos - (width/2.0))/(width/2.0);
-        float yposNDC = ((height/2.0) - ypos)/(height/2.0);
+            Vertex new_vertex(cursor_pos_NDC);
+            if (control_vertices.size() <= 50) {
+                control_vertices.push_back(new_vertex);
+            } else {
+                std::cerr << "Bézier curves with more than 51 vertices are not "
+                        << "allowed to avoid overflow problems" << std::endl;
+                exit(EXIT_FAILURE);
+            }
+        }
+    } else if (mode == 1) { // edit mode
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+            glm::vec2 cursor_pos_NDC = get_cursor_position_NDC(window);
 
-        glm::vec2 new_vertex(xposNDC, yposNDC);
-        if(control_vertices.size() <= 50) {
-            control_vertices.push_back(new_vertex);
-        } else {
-            std::cerr << "Bézier curves with more than 51 vertices are not "
-                      << "allowed to avoid overflow problems" << std::endl;
-            exit(EXIT_FAILURE);
+            for (Vertex& v : control_vertices) {
+                if (glm::distance(v.position, cursor_pos_NDC) < 0.03) {
+                    v.is_moving = true;
+                }
+            }
+        }
+
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
+            for (Vertex& v : control_vertices) {
+                v.is_moving = false;
+            }
         }
     }
 }
@@ -150,7 +201,7 @@ int main()
 
     glfwSetErrorCallback(error_callback);
 
-    if(!glfwInit()) {
+    if (!glfwInit()) {
         std::cerr << "glfw failed to initialize" << std::endl;
         return -1;
     }
@@ -159,8 +210,8 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(640, 480, "My Title", NULL, NULL);
-    if(!window) {
+    GLFWwindow* window = glfwCreateWindow(640, 480, "2dcurves", NULL, NULL);
+    if (!window) {
         std::cerr << "glfw failed to create window" << std::endl;
         glfwTerminate();
         return -1;
@@ -174,7 +225,7 @@ int main()
 
     // Initialize glad
     int version = gladLoadGL(glfwGetProcAddress);
-    if(version == 0) {
+    if (version == 0) {
         std::cerr << "Failed to initialize OpenGL context" << std::endl;
         return -1;
     }
@@ -182,6 +233,10 @@ int main()
     // Successfully loaded OpenGL
     std::cout << "Loaded OpenGL " << GLAD_VERSION_MAJOR(version) << "."
               << GLAD_VERSION_MINOR(version) << std::endl;
+
+
+    // Modes
+    std::cout << "Press 0 for drawing mode, 1 for editing mode" << std::endl;
 
     glfwSwapInterval(1);
 
@@ -213,13 +268,23 @@ int main()
     glEnableVertexAttribArray(0);
 
 
-    while(!glfwWindowShouldClose(window)) {
+    while (!glfwWindowShouldClose(window)) {
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
 
         glViewport(0, 0, width, height);
         glClearColor(0.3f, 0.3f, 0.3f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
+
+        int state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
+        if (state == GLFW_PRESS && mode == 1) {
+            for (Vertex& v : control_vertices) {
+                if (v.is_moving == 1) {
+                    glm::vec2 cursor_position = get_cursor_position_NDC(window);
+                    v.position = cursor_position;
+                }
+            }
+        }
 
         shaderProgram.use();
         glEnable(GL_PROGRAM_POINT_SIZE);
