@@ -235,8 +235,9 @@ int main()
               << GLAD_VERSION_MINOR(version) << std::endl;
 
 
-    // Modes
-    std::cout << "Press 0 for drawing mode, 1 for editing mode" << std::endl;
+    // Keyboard input instructions
+    std::cout << "\nKEYBOARD INPUT:\n" << "0: drawing mode\n" << "1: editing mode"
+            << std::endl;
 
     glfwSwapInterval(1);
 
