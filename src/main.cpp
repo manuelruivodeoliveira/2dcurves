@@ -21,9 +21,10 @@ struct Vertex
     bool is_moving = false;
 };
 
+enum class mode {drawing, editing};
 
 // Global variables
-int mode = 0;
+mode active_mode = mode::drawing;
 std::vector<Vertex> control_vertices;
 int num_samples = 100;
 std::vector<float> t_samples;
@@ -151,20 +152,42 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
         glfwSetWindowShouldClose(window, GLFW_TRUE);
     }
 
-    if (key == GLFW_KEY_0 && action == GLFW_PRESS) {
-        mode = 0;
+    if ((key == GLFW_KEY_0 || key == GLFW_KEY_KP_0) && action == GLFW_PRESS) {
+        if (active_mode == mode::editing) {
+            glm::vec2 cursor_position_NDC = get_cursor_position_NDC(window);
+            Vertex new_vertex(cursor_position_NDC);
+            control_vertices.push_back(new_vertex);
+        
+            active_mode = mode::drawing;
+        }
     }
 
-    if (key == GLFW_KEY_1 && action == GLFW_PRESS) {
-        mode = 1;
+    if ((key == GLFW_KEY_1 || key == GLFW_KEY_KP_1) && action == GLFW_PRESS) {
+        if (active_mode == mode::drawing) {
+            control_vertices.pop_back();
+            active_mode = mode::editing;
+        }
+    }
+
+    if (key == GLFW_KEY_C && action == GLFW_PRESS) {
+        control_vertices.clear();
+        active_mode = mode::drawing;
     }
 }
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 {
-    if (mode == 0) { // drawing mode
-        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+    if (active_mode == mode::drawing) {
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
             glm::vec2 cursor_pos_NDC = get_cursor_position_NDC(window);
+
+            if (control_vertices.empty()) {
+                Vertex first_vertex(cursor_pos_NDC);
+                control_vertices.push_back(first_vertex);
+
+                Vertex second_vertex(cursor_pos_NDC);
+                control_vertices.push_back(second_vertex);
+            }
 
             Vertex new_vertex(cursor_pos_NDC);
             if (control_vertices.size() <= 50) {
@@ -175,7 +198,12 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                 exit(EXIT_FAILURE);
             }
         }
-    } else if (mode == 1) { // edit mode
+
+        if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_RELEASE) {
+            control_vertices.pop_back();
+            active_mode = mode::editing;
+        }
+    } else if (active_mode == mode::editing) {
         if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
             glm::vec2 cursor_pos_NDC = get_cursor_position_NDC(window);
 
@@ -234,10 +262,11 @@ int main()
     std::cout << "Loaded OpenGL " << GLAD_VERSION_MAJOR(version) << "."
               << GLAD_VERSION_MINOR(version) << std::endl;
 
-
     // Keyboard input instructions
-    std::cout << "\nKEYBOARD INPUT:\n" << "0: drawing mode\n" << "1: editing mode"
-            << std::endl;
+    std::cout << "\nKEYBOARD INPUT:\n" 
+              << "0: drawing mode\n" 
+              << "1: editing mode\n"
+              << "C: clear" << std::endl;
 
     glfwSwapInterval(1);
 
@@ -277,12 +306,18 @@ int main()
         glClearColor(0.3f, 0.3f, 0.3f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
+        glm::vec2 cursor_position_NDC = get_cursor_position_NDC(window);
+
+        if (active_mode == mode::drawing && !control_vertices.empty()) {
+            Vertex& last_vertex = control_vertices.back();
+            last_vertex.position = cursor_position_NDC;
+        }
+
         int state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
-        if (state == GLFW_PRESS && mode == 1) {
+        if (active_mode == mode::editing && state == GLFW_PRESS) {
             for (Vertex& v : control_vertices) {
-                if (v.is_moving == 1) {
-                    glm::vec2 cursor_position = get_cursor_position_NDC(window);
-                    v.position = cursor_position;
+                if (v.is_moving) {
+                    v.position = cursor_position_NDC;
                 }
             }
         }
