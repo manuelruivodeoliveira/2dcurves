@@ -22,10 +22,12 @@ struct Vertex
 };
 
 enum class mode {drawing, editing};
+enum class visibility {show, hide};
 
 // Global variables
-mode active_mode = mode::drawing;
 std::vector<Vertex> control_vertices;
+mode active_mode = mode::drawing;
+visibility active_visibility = visibility::show;
 int num_samples = 100;
 std::vector<float> t_samples;
 
@@ -173,6 +175,14 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
         control_vertices.clear();
         active_mode = mode::drawing;
     }
+
+    if (key == GLFW_KEY_S && action == GLFW_PRESS) {
+        active_visibility = visibility::show;
+    }
+
+    if (key == GLFW_KEY_H && action == GLFW_PRESS) {
+        active_visibility = visibility::hide;
+    }
 }
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
@@ -266,7 +276,9 @@ int main()
     std::cout << "\nKEYBOARD INPUT:\n" 
               << "0: drawing mode\n" 
               << "1: editing mode\n"
-              << "C: clear" << std::endl;
+              << "C: clear\n"
+              << "S: show control polyline\n"
+              << "H: hide control polyline" << std::endl;
 
     glfwSwapInterval(1);
 
@@ -324,8 +336,12 @@ int main()
 
         shaderProgram.use();
         glEnable(GL_PROGRAM_POINT_SIZE);
+        
         draw_bezier_curve(vaos[0], vbos[0]);
-        draw_control_polygon(vaos[1], vbos[1]);
+
+        if (active_visibility == visibility::show) {
+            draw_control_polygon(vaos[1], vbos[1]);
+        }
 
         glfwSwapBuffers(window);
         glfwPollEvents();
