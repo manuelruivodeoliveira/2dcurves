@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 project(2dcurves)
 
-set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD 20)
 
 # Fetch libraries
 include(FetchContent)
@@ -28,6 +28,7 @@ FetchContent_MakeAvailable(glfw glm)
 add_executable(2dcurves
     src/main.cpp
     src/Shader.cpp
+    src/utils.cpp
     src/glad/gl.c
 )
 

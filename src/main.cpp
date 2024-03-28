@@ -1,6 +1,9 @@
 #define GLFW_INCLUDE_NONE
 
+#include "2dcurves/global_vars.h"
 #include "2dcurves/Shader.h"
+#include "2dcurves/utils.h"
+#include "2dcurves/Vertex.h"
 
 #include <glad/gl.h>
 #include <GLFW/glfw3.h>
@@ -12,134 +15,19 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <numeric>
 #include <vector>
 
-
-struct Vertex
-{
-    glm::vec2 position;
-    bool is_moving = false;
-};
 
 enum class mode {drawing, editing};
 enum class visibility {show, hide};
 
-// Global variables
+// Initialize global variables
 std::vector<Vertex> control_vertices;
 mode active_mode = mode::drawing;
 visibility active_visibility = visibility::show;
-int num_samples = 100;
-std::vector<float> t_samples;
-
-
-// Helper functions
-glm::vec2 get_cursor_position_NDC(GLFWwindow* window)
-{
-    double xpos, ypos;
-    glfwGetCursorPos(window, &xpos, &ypos);
-
-    int width, height;
-    glfwGetFramebufferSize(window, &width, &height);
-
-    // Map from screen coordinates to NDC
-    float xposNDC = (xpos - (width/2.0))/(width/2.0);
-    float yposNDC = ((height/2.0) - ypos)/(height/2.0);
-
-    return glm::vec2(xposNDC, yposNDC);
-}
-
-void fill_t_samples()
-{
-    assert(num_samples > 1);
-
-    float t_delta = 1.0/(num_samples - 1);
-    for (int i = 0; i < num_samples; ++i) {
-        float t_value = i * t_delta;
-        t_samples.push_back(t_value);
-    }
-}
-
-long long binomial_coefficient(int n, int k)
-{
-    assert((k >= 0) && (n >= 0) && (n >= k));
-    assert(n <= 50);
-
-    if (k > n - k) {
-        k = n - k;
-    }
-
-    long long res = 1;
-    for (int i = 0; i < k; ++i) {
-        res *= n - i;
-        res /= i + 1;
-    }
-
-    return res;
-}
-
-float bernstein_polynomial(int n, int i, float t)
-{
-    assert((n >= 0) && (i >= 0) && (n >= i));
-
-    return binomial_coefficient(n, i) * std::pow(t, i) * std::pow(1 - t, n - i);
-}
-
-void draw_bezier_curve(unsigned int vao, unsigned int vbo)
-{
-    // Compute bezier points
-    std::vector<glm::vec2> bezier_points;
-    int bezier_degree = control_vertices.size() - 1;
-
-    for (float t_value : t_samples) {
-        glm::vec2 bezier_point(0.0, 0.0);
-        for (int i = 0; i <= bezier_degree; i++) {
-            bezier_point += bernstein_polynomial(bezier_degree, i, t_value) * control_vertices[i].position;
-        }
-        bezier_points.push_back(bezier_point);
-    }
-
-    assert(bezier_points.size() == num_samples);
-
-    // Pass bezier_points to OpenGL
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(
-        GL_ARRAY_BUFFER,
-        bezier_points.size() * sizeof(glm::vec2),
-        bezier_points.data(),
-        GL_STATIC_DRAW
-    );
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-    // Draw
-    glBindVertexArray(vao);
-    glDrawArrays(GL_LINE_STRIP, 0, bezier_points.size());
-    glBindVertexArray(0);
-}
-
-void draw_control_polygon(unsigned int vao, unsigned int vbo)
-{
-    std::vector<glm::vec2> control_vertices_positions;
-    std::transform(
-        control_vertices.begin(),
-        control_vertices.end(),
-        std::back_inserter(control_vertices_positions),
-        [](Vertex v) { return v.position; }
-    );
-
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(
-        GL_ARRAY_BUFFER,
-        control_vertices_positions.size() * sizeof(glm::vec2),
-        control_vertices_positions.data(),
-        GL_STATIC_DRAW
-    );
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-    glBindVertexArray(vao);
-    glDrawArrays(GL_POINTS, 0, control_vertices_positions.size());
-    glDrawArrays(GL_LINE_STRIP, 0, control_vertices_positions.size());
-    glBindVertexArray(0);
-}
+int num_samples = 200;
+std::vector<float> t_samples = curves::linspace(0.0f, 1.0f, num_samples);
 
 
 // Callbacks
@@ -156,7 +44,7 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 
     if ((key == GLFW_KEY_0 || key == GLFW_KEY_KP_0) && action == GLFW_PRESS) {
         if (active_mode == mode::editing) {
-            glm::vec2 cursor_position_NDC = get_cursor_position_NDC(window);
+            glm::vec2 cursor_position_NDC = curves::get_cursor_position_NDC(window);
             Vertex new_vertex(cursor_position_NDC);
             control_vertices.push_back(new_vertex);
         
@@ -189,7 +77,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 {
     if (active_mode == mode::drawing) {
         if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
-            glm::vec2 cursor_pos_NDC = get_cursor_position_NDC(window);
+            glm::vec2 cursor_pos_NDC = curves::get_cursor_position_NDC(window);
 
             if (control_vertices.empty()) {
                 Vertex first_vertex(cursor_pos_NDC);
@@ -215,7 +103,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
         }
     } else if (active_mode == mode::editing) {
         if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            glm::vec2 cursor_pos_NDC = get_cursor_position_NDC(window);
+            glm::vec2 cursor_pos_NDC = curves::get_cursor_position_NDC(window);
 
             for (Vertex& v : control_vertices) {
                 if (glm::distance(v.position, cursor_pos_NDC) < 0.03) {
@@ -235,8 +123,6 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
 int main()
 {
-    fill_t_samples();
-
     glfwSetErrorCallback(error_callback);
 
     if (!glfwInit()) {
@@ -318,7 +204,7 @@ int main()
         glClearColor(0.3f, 0.3f, 0.3f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        glm::vec2 cursor_position_NDC = get_cursor_position_NDC(window);
+        glm::vec2 cursor_position_NDC = curves::get_cursor_position_NDC(window);
 
         if (active_mode == mode::drawing && !control_vertices.empty()) {
             Vertex& last_vertex = control_vertices.back();
@@ -337,10 +223,10 @@ int main()
         shaderProgram.use();
         glEnable(GL_PROGRAM_POINT_SIZE);
         
-        draw_bezier_curve(vaos[0], vbos[0]);
+        curves::draw_bezier_curve(vaos[0], vbos[0]);
 
         if (active_visibility == visibility::show) {
-            draw_control_polygon(vaos[1], vbos[1]);
+            curves::draw_control_polygon(vaos[1], vbos[1]);
         }
 
         glfwSwapBuffers(window);
